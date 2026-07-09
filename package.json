@@ -1,0 +1,16 @@
+{
+  "name": "sinergidesa-poc",
+  "version": "1.0.0",
+  "description": "PoC SinergiDesa: text parsing engine + ledger hash-chain + anchoring Merkle root (audit trail, bukan pembayaran)",
+  "scripts": {
+    "start": "node src/server.js",
+    "demo": "node src/demo.js",
+    "verify": "node src/verify.js",
+    "anchor": "node src/anchor.js",
+    "tamper": "node src/tamper.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.0"
+  }
+}
