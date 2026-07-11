@@ -8,22 +8,34 @@ const { parseMessage } = require("./parser");
 const ledger = require("./ledger");
 
 function main() {
-  // Registrasi anggota (KYC ringan oleh pengurus — Slide 10)
-  ledger.registerAnggota("+6281200000001", "Pak Slamet", "KOP-DESA-A");   // desa agraris
-  ledger.registerAnggota("+6281200000002", "Bu Rahmi",   "KOP-DESA-A");
-  ledger.registerAnggota("+6281200000003", "Pak Yusuf",  "KOP-DESA-B");   // desa tambang
-  console.log("Anggota terdaftar: 3 (2 koperasi)\n");
+  // Anggota & koperasi disamakan dengan data dummy frontend (mockData.ts)
+  // supaya cerita demo konsisten lintas dashboard <-> ledger on-chain.
+  ledger.registerAnggota("+6281300000001", "Budi Santoso",  "Kop. Sumberrejo"); // Staf Logistik
+  ledger.registerAnggota("+6281300000002", "Slamet Riyadi", "Kop. Argosari");   // Staf Logistik
+  ledger.registerAnggota("+6281300000003", "Siti Rahma",    "Kop. Argosari");   // Administrasi
+  ledger.registerAnggota("+6281300000004", "Edi Santoso",   "Kop. Tirtomulyo");
+  console.log("Anggota terdaftar: 4 (3 koperasi)\n");
 
-  // Pesan masuk — termasuk contoh typo (fuzzy) dan nomor tak terdaftar
+  // Pesan masuk — nilai (komoditas/kuantitas/harga) dipilih agar cocok
+  // dengan transaksi & escrow yang sama di frontend (mockData.ts), plus
+  // contoh typo (fuzzy) dan nomor tak terdaftar untuk uji parser.
   const incoming = [
-    { dari: "+6281200000003", teks: "KIRIM#BELERANG#5TON#TRUK123" },
-    { dari: "+6281200000001", teks: "JUAL#GABAH#2TON#RP12000" },
-    { dari: "+6281200000002", teks: "TERIMA#PUPUK#500KG#OK" },
-    { dari: "+6281200000001", teks: "BUTUH#PUPUK#500KG" },
-    { dari: "+6281200000003", teks: "KRIM#BELERNG#3TON#TRUK99" },   // typo -> tetap dikenali
-    { dari: "+6281200000002", teks: "JUAL#GABAH#2 TON#RP 12.000" }, // spasi/format -> dinormalisasi
-    { dari: "+6289900000000", teks: "JUAL#KOPI#1TON#RP80000" },     // nomor TIDAK terdaftar -> ditolak
-    { dari: "+6281200000001", teks: "HALO ADMIN" },                  // bukan format -> balasan bantuan
+    // ESC-2292: Belerang 5 ton, Sumberrejo -> Argosari, Rp 18,5 jt (act-3: sengketa escrow)
+    { dari: "+6281300000001", teks: "KIRIM#BELERANG#5TON#N8412UT" },
+    // ESC-2291: Gabah 2 ton, Sumberrejo -> Argosari, Rp 24 jt
+    { dari: "+6281300000001", teks: "JUAL#GABAH#2TON#RP12000" },
+    // ESC-2293: Pupuk organik 800 kg, Sumberrejo -> Tirtomulyo, Rp 6,4 jt
+    { dari: "+6281300000004", teks: "TERIMA#PUPUK#800KG#OK" },
+    // TRX-0712-019: Jagung 800 kg @ Rp5.500, handler Slamet Riyadi, Kop. Argosari
+    { dari: "+6281300000002", teks: "JUAL#JAGUNG#800KG#RP5500" },
+    // TRX-0712-021: Gabah 1.100 kg @ Rp7.200, handler Siti Rahma, Kop. Argosari
+    { dari: "+6281300000003", teks: "JUAL#GABAH#1100KG#RP7200" },
+    // sinyal demand sensing (Pupuk) untuk dashboard "Kebutuhan"
+    { dari: "+6281300000002", teks: "BUTUH#PUPUK#500KG" },
+    { dari: "+6281300000001", teks: "KRIM#BELERNG#3TON#N8412UT" },   // typo -> tetap dikenali
+    { dari: "+6281300000002", teks: "JUAL#GABAH#2 TON#RP 12.000" },  // spasi/format -> dinormalisasi
+    { dari: "+6289900000000", teks: "JUAL#KOPI#1TON#RP80000" },      // nomor TIDAK terdaftar -> ditolak
+    { dari: "+6281300000003", teks: "HALO ADMIN" },                   // bukan format -> balasan bantuan
   ];
 
   const anggota = ledger.getAnggota();
