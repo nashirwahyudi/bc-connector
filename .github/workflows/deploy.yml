@@ -1,0 +1,76 @@
+name: Deploy be-connector
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  CONTAINER_NAME: be-connector
+  APP_PORT: "3000"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+          APP_PORT: ${{ env.APP_PORT }}
+          RPC_URL: ${{ secrets.RPC_URL }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USER: ${{ github.repository_owner }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          envs: IMAGE_NAME,CONTAINER_NAME,APP_PORT,RPC_URL,PRIVATE_KEY,CONTRACT_ADDRESS,GHCR_TOKEN,GHCR_USER
+          script: |
+            set -euo pipefail
+
+            echo "$GHCR_TOKEN" | podman login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            podman pull "$IMAGE_NAME:latest"
+
+            podman run -d --replace \
+              --name "$CONTAINER_NAME" \
+              --restart unless-stopped \
+              --network nginx-proxy \
+              -e PORT="$APP_PORT" \
+              -e RPC_URL="$RPC_URL" \
+              -e PRIVATE_KEY="$PRIVATE_KEY" \
+              -e CONTRACT_ADDRESS="$CONTRACT_ADDRESS" \
+              -v be-connector-data:/app/data \
+              "$IMAGE_NAME:latest"
+
+            podman image prune -f
+
+            echo "Deployed $CONTAINER_NAME on nginx-proxy network (internal port $APP_PORT)"
