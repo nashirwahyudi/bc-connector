@@ -1,0 +1,407 @@
+openapi: 3.0.3
+info:
+  title: SinergiDesa PoC API
+  description: >
+    REST API untuk parsing pesan koperasi, ledger hash-chain (Tingkat 1),
+    dan anchoring Merkle root ke Sepolia (Tingkat 2). Lihat README.md untuk
+    konteks arsitektur lengkap.
+  version: "1.0.0"
+servers:
+  - url: http://localhost:3000
+    description: Local dev server
+tags:
+  - name: health
+  - name: anggota
+  - name: messages
+  - name: entries
+  - name: verify
+  - name: anchoring
+  - name: stats
+
+paths:
+  /api/health:
+    get:
+      tags: [health]
+      summary: Liveness check
+      responses:
+        "200":
+          description: Server hidup
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  time: { type: string, format: date-time }
+
+  /api/anggota:
+    post:
+      tags: [anggota]
+      summary: Daftarkan anggota (KYC ringan oleh pengurus)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nomorHp, nama, koperasiId]
+              properties:
+                nomorHp: { type: string, example: "+6281200000001" }
+                nama: { type: string, example: "Pak Slamet" }
+                koperasiId: { type: string, example: "KOP-DESA-A" }
+      responses:
+        "201":
+          description: Anggota terdaftar
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registered:
+                    $ref: "#/components/schemas/Anggota"
+        "400":
+          description: Field wajib hilang
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      tags: [anggota]
+      summary: Daftar semua anggota terdaftar
+      responses:
+        "200":
+          description: Daftar anggota
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  anggota:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/Anggota"
+
+  /api/messages:
+    post:
+      tags: [messages]
+      summary: Pesan masuk -> parser -> ledger
+      description: >
+        Menangani alur konfirmasi: bila teks sebelumnya memicu
+        needsConfirmation, kirim ulang dengan teks "YA" untuk mencatat atau
+        "TIDAK" untuk membatalkan.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dari, teks]
+              properties:
+                dari: { type: string, example: "+6281200000003" }
+                teks: { type: string, example: "KIRIM#BELERANG#5TON#TRUK123" }
+      responses:
+        "201":
+          description: Tercatat langsung ke ledger
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded: { type: boolean, example: true }
+                  entry:
+                    $ref: "#/components/schemas/Entry"
+                  reply: { type: string }
+        "200":
+          description: Butuh konfirmasi YA/TIDAK, atau konfirmasi TIDAK diterima
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded: { type: boolean, example: false }
+                  needsConfirmation: { type: boolean }
+                  reply: { type: string }
+        "400":
+          description: Field wajib hilang
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Nomor tak terdaftar atau format pesan tidak dikenali
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded: { type: boolean, example: false }
+                  reply: { type: string }
+
+  /api/entries:
+    get:
+      tags: [entries]
+      summary: Daftar entri ledger (dengan filter & paginasi)
+      parameters:
+        - name: koperasiId
+          in: query
+          schema: { type: string }
+        - name: aksi
+          in: query
+          schema: { type: string, enum: [KIRIM, JUAL, TERIMA, BUTUH] }
+        - name: komoditas
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: Daftar entri
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  offset: { type: integer }
+                  limit: { type: integer }
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Entry"
+
+  /api/entries/{seq}:
+    get:
+      tags: [entries]
+      summary: Satu entri berdasarkan nomor urut
+      parameters:
+        - name: seq
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Entri ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Entry"
+        "404":
+          description: Entri tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/verify:
+    get:
+      tags: [verify]
+      summary: Verifikasi seluruh hash-chain (Tingkat 1)
+      responses:
+        "200":
+          description: Hasil verifikasi rantai
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyChainResult"
+
+  /api/verify/{seq}:
+    get:
+      tags: [verify]
+      summary: Verifikasi satu entri (Tingkat 1 + Tingkat 2 bila sudah di-anchor)
+      parameters:
+        - name: seq
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Hasil verifikasi entri
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  seq: { type: integer }
+                  level1:
+                    type: object
+                    properties:
+                      valid: { type: boolean }
+                      chainValid: { type: boolean }
+                      problems:
+                        type: array
+                        items: { type: object }
+                  level2:
+                    type: object
+                    description: >
+                      "belum di-anchor" jika batch belum di-anchor;
+                      "tidak tersedia: ..." jika dependensi (.env/ethers) tidak
+                      terpasang; jika berhasil berisi valid/batchId/txHash/proof.
+        "404":
+          description: Entri tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/batches:
+    get:
+      tags: [anchoring]
+      summary: Daftar batch yang sudah di-anchor
+      responses:
+        "200":
+          description: Daftar batch
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  batches:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Batch"
+
+  /api/anchor:
+    post:
+      tags: [anchoring]
+      summary: Jalankan anchoring batch pending sekarang
+      description: >
+        Memerlukan `npm install` (ethers) dan `.env` (RPC_URL, PRIVATE_KEY,
+        CONTRACT_ADDRESS) terisi di server. Mengirim transaksi on-chain nyata
+        bila ada entri pending.
+      responses:
+        "200":
+          description: Tidak ada entri pending untuk di-anchor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  anchored: { type: boolean, example: false }
+                  reply: { type: string }
+        "201":
+          description: Batch berhasil di-anchor on-chain
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  anchored: { type: boolean, example: true }
+                  batchId: { type: integer }
+                  root: { type: string }
+                  txHash: { type: string }
+        "503":
+          description: Anchoring tidak tersedia (dependensi/.env belum siap)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  hint: { type: string }
+
+  /api/stats:
+    get:
+      tags: [stats]
+      summary: Ringkasan dashboard
+      responses:
+        "200":
+          description: Statistik agregat
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalEntri: { type: integer }
+                  integritasHashChain: { type: string, enum: [UTUH, PUTUS] }
+                  masalah:
+                    type: array
+                    items: { type: object }
+                  terAnchor: { type: integer }
+                  belumTerAnchor: { type: integer }
+                  perAksi:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/AggBucket"
+                  perKomoditas:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/AggBucket"
+                  perKoperasi:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/AggBucket"
+                  kebutuhan:
+                    type: object
+                    additionalProperties: { type: number }
+                    description: Total kg BUTUH per komoditas (demand sensing)
+
+components:
+  schemas:
+    Anggota:
+      type: object
+      properties:
+        nomorHp: { type: string }
+        nama: { type: string }
+        koperasiId: { type: string }
+
+    Entry:
+      type: object
+      properties:
+        seq: { type: integer }
+        aksi: { type: string, enum: [KIRIM, JUAL, TERIMA, BUTUH] }
+        komoditas: { type: string }
+        kuantitasKg: { type: number }
+        hargaRp: { type: number, nullable: true }
+        armada: { type: string, nullable: true }
+        status: { type: string, nullable: true }
+        pengirim: { type: string }
+        nama: { type: string }
+        koperasiId: { type: string }
+        timestamp: { type: string, format: date-time }
+        prevHash: { type: string }
+        entryHash: { type: string }
+        batchId:
+          type: integer
+          nullable: true
+          description: null bila belum di-anchor
+
+    Batch:
+      type: object
+      properties:
+        batchId: { type: integer }
+        root: { type: string }
+        txHash: { type: string }
+        blockNumber: { type: integer }
+        seqs:
+          type: array
+          items: { type: integer }
+
+    VerifyChainResult:
+      type: object
+      properties:
+        valid: { type: boolean }
+        totalEntries: { type: integer }
+        problems:
+          type: array
+          items:
+            type: object
+            properties:
+              seq: { type: integer }
+              issue: { type: string }
+
+    AggBucket:
+      type: object
+      properties:
+        jumlahEntri: { type: integer }
+        totalKg: { type: number }
+
+    Error:
+      type: object
+      properties:
+        error: { type: string }

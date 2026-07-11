@@ -87,6 +87,27 @@ Integrasi WhatsApp nanti: webhook WhatsApp Cloud API tinggal meneruskan `{dari, 
 
 Produksi: pindah ke L2 (Polygon/Arbitrum/Base — biaya sen per anchor) atau chain permissioned; testnet bisa di-reset sehingga hanya untuk PoC.
 
+## Hosting `server.js` agar bisa diakses dari internet (untuk frontend)
+
+`server.js` perlu proses Node yang berjalan terus-menerus (state anggota/ledger &
+antrean konfirmasi YA/TIDAK disimpan di memori/file lokal) — jadi platform
+serverless (Vercel/Netlify functions) **tidak cocok**. Gunakan host dengan proses
+persisten, mis. Railway, Render, atau Fly.io:
+
+1. Deploy repo dari GitHub (Railway: New Project → Deploy from GitHub repo).
+2. Set environment variables di dashboard host (**bukan** file `.env`, yang
+   sengaja di-`.gitignore`): `RPC_URL`, `PRIVATE_KEY`, `CONTRACT_ADDRESS`.
+   Host biasanya mengisi `PORT` otomatis — `server.js` sudah membaca
+   `process.env.PORT`.
+3. Start command default `npm start` (`node src/server.js`) sudah benar.
+4. Generate domain publik dari dashboard host, arahkan frontend ke situ.
+   CORS sudah terbuka (`*`) untuk dev — batasi origin sebelum produksi.
+5. **Penting:** filesystem di kebanyakan PaaS bersifat ephemeral (reset saat
+   redeploy). Untuk PoC/demo ini biasanya cukup, tapi bila entri ledger harus
+   bertahan lintas deploy, pasang persistent volume yang di-mount ke folder
+   `data/`, atau pindahkan penyimpanan ke DB sungguhan (lihat catatan produksi
+   di bagian REST API di atas).
+
 ## Format pesan yang didukung parser
 
 ```
