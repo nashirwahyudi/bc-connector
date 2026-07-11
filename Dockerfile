@@ -6,8 +6,10 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY src ./src
-COPY contracts ./contracts
 
+ENV PORT=3000
 EXPOSE 3000
 
-CMD ["node", "src/server.js"]
+RUN mkdir -p data
+
+CMD ["npm", "start"]
