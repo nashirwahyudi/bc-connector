@@ -38,7 +38,7 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       - name: Deploy to server
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.2
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
@@ -46,17 +46,23 @@ jobs:
           RPC_URL: ${{ secrets.RPC_URL }}
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          GHCR_USER: ${{ github.repository_owner }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          envs: IMAGE_NAME,CONTAINER_NAME,APP_PORT,RPC_URL,PRIVATE_KEY,CONTRACT_ADDRESS,GHCR_TOKEN,GHCR_USER
+          envs: IMAGE_NAME,CONTAINER_NAME,APP_PORT,RPC_URL,PRIVATE_KEY,CONTRACT_ADDRESS,GHCR_USER,GHCR_TOKEN
           script: |
             set -euo pipefail
 
-            echo "$GHCR_TOKEN" | podman login ghcr.io -u "$GHCR_USER" --password-stdin
+            if [ -z "${GHCR_TOKEN:-}" ]; then
+              echo "Error: GHCR_TOKEN kosong — workflow tidak dapat autentikasi ke ghcr.io"
+              exit 1
+            fi
+
+            # -p (bukan --password-stdin) agar tidak prompt password di sesi SSH non-TTY
+            podman login ghcr.io -u "$GHCR_USER" -p "$GHCR_TOKEN"
 
             podman pull "$IMAGE_NAME:latest"
 
@@ -71,6 +77,7 @@ jobs:
               -v be-connector-data:/app/data \
               "$IMAGE_NAME:latest"
 
+            podman logout ghcr.io 2>/dev/null || true
             podman image prune -f
 
             echo "Deployed $CONTAINER_NAME on nginx-proxy network (internal port $APP_PORT)"
